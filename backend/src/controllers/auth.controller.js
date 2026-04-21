@@ -1,7 +1,8 @@
-import { generateToken } from "../lib/utils.js";
+import { authCookieOptions, generateToken } from "../lib/utils.js";
 import User from "../models/user.model.js";
 import bcrypt from "bcryptjs";
 import cloudinary from "../lib/cloudinary.js";
+import jwt from "jsonwebtoken";
 
 export const signup = async (req, res) => {
   const { fullName, email, password } = req.body;
@@ -77,7 +78,7 @@ export const login = async (req, res) => {
 
 export const logout = (req, res) => {
   try {
-    res.cookie("jwt", "", { maxAge: 0 });
+    res.cookie("jwt", "", { maxAge: 0, ...authCookieOptions });
     res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
     console.log("Error in logout controller", error.message);
@@ -108,11 +109,25 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-export const checkAuth = (req, res) => {
+export const checkAuth = async (req, res) => {
   try {
-    res.status(200).json(req.user);
+    const token = req.cookies.jwt;
+
+    if (!token) {
+      return res.status(200).json(null);
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select("-password");
+
+    if (!user) {
+      res.cookie("jwt", "", { maxAge: 0, ...authCookieOptions });
+      return res.status(200).json(null);
+    }
+
+    res.status(200).json(user);
   } catch (error) {
-    console.log("Error in checkAuth controller", error.message);
-    res.status(500).json({ message: "Internal Server Error" });
+    res.cookie("jwt", "", { maxAge: 0, ...authCookieOptions });
+    res.status(200).json(null);
   }
 };

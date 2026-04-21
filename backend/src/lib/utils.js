@@ -1,5 +1,13 @@
 import jwt from "jsonwebtoken";
 
+const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL;
+
+export const authCookieOptions = {
+  httpOnly: true,
+  sameSite: isProduction ? "none" : "strict",
+  secure: isProduction,
+};
+
 export const generateToken = (userId, res) => {
   const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: "7d",
@@ -7,9 +15,7 @@ export const generateToken = (userId, res) => {
 
   res.cookie("jwt", token, {
     maxAge: 7 * 24 * 60 * 60 * 1000, // MS
-    httpOnly: true, // prevent XSS attacks cross-site scripting attacks
-    sameSite: process.env.NODE_ENV === "development" ? "strict" : "none",
-    secure: process.env.NODE_ENV !== "development",
+    ...authCookieOptions,
   });
 
   return token;
