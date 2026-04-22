@@ -3,6 +3,16 @@ import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
 
+const MESSAGE_POLL_INTERVAL = 2000;
+let messagePollInterval = null;
+
+const stopMessagePolling = () => {
+  if (messagePollInterval) {
+    clearInterval(messagePollInterval);
+    messagePollInterval = null;
+  }
+};
+
 export const useChatStore = create((set, get) => ({
   messages: [],
   users: [],
@@ -22,24 +32,24 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  getMessages: async (userId) => {
-    set({ isMessagesLoading: true });
+  getMessages: async (userId, { silent = false } = {}) => {
+    if (!silent) set({ isMessagesLoading: true });
     try {
       const res = await axiosInstance.get(`/messages/${userId}`);
       set({ messages: res.data });
     } catch (error) {
-      toast.error(error.response.data.message);
+      if (!silent) toast.error(error.response?.data?.message || "Unable to load messages");
     } finally {
-      set({ isMessagesLoading: false });
+      if (!silent) set({ isMessagesLoading: false });
     }
   },
   sendMessage: async (messageData) => {
-    const { selectedUser, messages } = get();
+    const { selectedUser } = get();
     try {
       const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      set({ messages: [...messages, res.data] });
+      set((state) => ({ messages: [...state.messages, res.data] }));
     } catch (error) {
-      toast.error(error.response.data.message);
+      toast.error(error.response?.data?.message || "Unable to send message");
     }
   },
 
@@ -49,19 +59,32 @@ export const useChatStore = create((set, get) => ({
 
     const socket = useAuthStore.getState().socket;
 
-    socket.on("newMessage", (newMessage) => {
-      const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
-      if (!isMessageSentFromSelectedUser) return;
+    stopMessagePolling();
 
-      set({
-        messages: [...get().messages, newMessage],
+    if (socket) {
+      socket.off("newMessage");
+      socket.on("newMessage", (newMessage) => {
+        const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
+        if (!isMessageSentFromSelectedUser) return;
+
+        set((state) => ({
+          messages: [...state.messages, newMessage],
+        }));
       });
-    });
+    }
+
+    messagePollInterval = setInterval(() => {
+      const activeUser = get().selectedUser;
+      if (activeUser?._id) {
+        get().getMessages(activeUser._id, { silent: true });
+      }
+    }, MESSAGE_POLL_INTERVAL);
   },
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
-    socket.off("newMessage");
+    socket?.off("newMessage");
+    stopMessagePolling();
   },
 
   setSelectedUser: (selectedUser) => set({ selectedUser }),
