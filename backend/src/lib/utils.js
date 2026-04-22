@@ -20,3 +20,14 @@ export const generateToken = (userId, res) => {
 
   return token;
 };
+
+export const getAuthToken = (req) => {
+  const authHeader = req.headers.authorization || "";
+  const [scheme, token] = authHeader.split(" ");
+
+  if (scheme?.toLowerCase() === "bearer" && token) {
+    return token;
+  }
+
+  return req.cookies.jwt;
+};

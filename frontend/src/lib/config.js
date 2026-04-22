@@ -1,5 +1,5 @@
 const DEFAULT_BACKEND_URL = import.meta.env.PROD
-  ? "https://my-chat-app-two-delta.vercel.app"
+  ? "https://my-chat-app-saurabh5.vercel.app"
   : "http://localhost:5001";
 
 export const BACKEND_BASE_URL = (

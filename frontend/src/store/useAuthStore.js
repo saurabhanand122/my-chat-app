@@ -4,6 +4,21 @@ import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 import { BACKEND_BASE_URL } from "../lib/config.js";
 
+const saveAuthSession = (user) => {
+  if (user?.token) {
+    localStorage.setItem("auth-token", user.token);
+  }
+
+  const authUser = { ...user };
+  delete authUser.token;
+
+  return authUser;
+};
+
+const clearAuthSession = () => {
+  localStorage.removeItem("auth-token");
+};
+
 export const useAuthStore = create((set, get) => ({
   authUser: null,
   isSigningUp: false,
@@ -17,12 +32,17 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = await axiosInstance.get("/auth/check");
 
+      if (!res.data) {
+        clearAuthSession();
+      }
+
       set({ authUser: res.data });
       get().connectSocket();
     } catch (error) {
       if (error.response?.status !== 401) {
         console.log("Error in checkAuth:", error);
       }
+      clearAuthSession();
       set({ authUser: null });
     } finally {
       set({ isCheckingAuth: false });
@@ -33,7 +53,7 @@ export const useAuthStore = create((set, get) => ({
     set({ isSigningUp: true });
     try {
       const res = await axiosInstance.post("/auth/signup", data);
-      set({ authUser: res.data });
+      set({ authUser: saveAuthSession(res.data) });
       toast.success("Account created successfully");
       get().connectSocket();
     } catch (error) {
@@ -47,7 +67,7 @@ export const useAuthStore = create((set, get) => ({
     set({ isLoggingIn: true });
     try {
       const res = await axiosInstance.post("/auth/login", data);
-      set({ authUser: res.data });
+      set({ authUser: saveAuthSession(res.data) });
       toast.success("Logged in successfully");
 
       get().connectSocket();
@@ -66,6 +86,8 @@ export const useAuthStore = create((set, get) => ({
       get().disconnectSocket();
     } catch (error) {
       toast.error(error.response?.data?.message || "Unable to log out");
+    } finally {
+      clearAuthSession();
     }
   },
 
