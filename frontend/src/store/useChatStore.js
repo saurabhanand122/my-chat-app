@@ -13,6 +13,12 @@ const stopMessagePolling = () => {
   }
 };
 
+const getMessagePreview = (message) => {
+  if (message.text?.trim()) return message.text.trim();
+  if (message.image) return "Sent an image";
+  return "Sent a message";
+};
+
 export const useChatStore = create((set, get) => ({
   messages: [],
   users: [],
@@ -80,6 +86,8 @@ export const useChatStore = create((set, get) => ({
       }
 
       get().incrementUnreadCount(newMessage.senderId);
+      get().moveUserToTop(newMessage.senderId);
+      get().showMessageNotification(newMessage);
     });
 
     messagePollInterval = setInterval(() => {
@@ -114,6 +122,26 @@ export const useChatStore = create((set, get) => ({
         user._id === userId ? { ...user, unreadCount: 0 } : user
       ),
     })),
+
+  moveUserToTop: (userId) =>
+    set((state) => {
+      const sender = state.users.find((user) => user._id === userId);
+      if (!sender) return state;
+
+      return {
+        users: [sender, ...state.users.filter((user) => user._id !== userId)],
+      };
+    }),
+
+  showMessageNotification: (message) => {
+    const sender = get().users.find((user) => user._id === message.senderId);
+    const senderName = sender?.fullName || "New message";
+    const preview = getMessagePreview(message);
+
+    toast(`${senderName}: ${preview}`, {
+      duration: 4000,
+    });
+  },
 
   setSelectedUser: (selectedUser) => {
     set({ selectedUser });
