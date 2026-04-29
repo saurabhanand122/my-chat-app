@@ -17,7 +17,12 @@ import { Toaster } from "react-hot-toast";
 
 const App = () => {
   const { authUser, checkAuth, isCheckingAuth, onlineUsers, socket } = useAuthStore();
-  const { subscribeToMessages, unsubscribeFromMessages } = useChatStore();
+  const {
+    subscribeToMessages,
+    unsubscribeFromMessages,
+    startContactsPolling,
+    stopContactsPolling,
+  } = useChatStore();
   const { theme } = useThemeStore();
 
   console.log({ onlineUsers });
@@ -32,6 +37,13 @@ const App = () => {
     subscribeToMessages();
     return () => unsubscribeFromMessages();
   }, [authUser, socket, subscribeToMessages, unsubscribeFromMessages]);
+
+  useEffect(() => {
+    if (!authUser) return;
+
+    startContactsPolling();
+    return () => stopContactsPolling();
+  }, [authUser, startContactsPolling, stopContactsPolling]);
 
   console.log({ authUser });
 

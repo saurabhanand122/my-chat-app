@@ -4,12 +4,21 @@ import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
 
 const MESSAGE_POLL_INTERVAL = 2000;
+const CONTACTS_POLL_INTERVAL = 5000;
 let messagePollInterval = null;
+let contactsPollInterval = null;
 
 const stopMessagePolling = () => {
   if (messagePollInterval) {
     clearInterval(messagePollInterval);
     messagePollInterval = null;
+  }
+};
+
+const stopContactsPolling = () => {
+  if (contactsPollInterval) {
+    clearInterval(contactsPollInterval);
+    contactsPollInterval = null;
   }
 };
 
@@ -19,6 +28,9 @@ const getMessagePreview = (message) => {
   return "Sent a message";
 };
 
+const sortUsersByUnread = (users, unreadCounts) =>
+  [...users].sort((a, b) => (unreadCounts[b._id] || 0) - (unreadCounts[a._id] || 0));
+
 export const useChatStore = create((set, get) => ({
   messages: [],
   users: [],
@@ -27,20 +39,35 @@ export const useChatStore = create((set, get) => ({
   isUsersLoading: false,
   isMessagesLoading: false,
 
-  getUsers: async () => {
-    set({ isUsersLoading: true });
+  getUsers: async ({ silent = false, notifyNewUnread = false } = {}) => {
+    if (!silent) set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/users");
+      const previousUnreadCounts = get().unreadCounts;
+      const activeUserId = get().selectedUser?._id;
       const unreadCounts = res.data.reduce((counts, user) => {
         counts[user._id] = user.unreadCount || 0;
         return counts;
       }, {});
 
-      set({ users: res.data, unreadCounts });
+      if (notifyNewUnread) {
+        res.data.forEach((user) => {
+          const previousCount = previousUnreadCounts[user._id] || 0;
+          const nextCount = unreadCounts[user._id] || 0;
+
+          if (user._id !== activeUserId && nextCount > previousCount) {
+            toast(`${user.fullName} sent you a message`, {
+              duration: 4000,
+            });
+          }
+        });
+      }
+
+      set({ users: sortUsersByUnread(res.data, unreadCounts), unreadCounts });
     } catch (error) {
-      toast.error(error.response.data.message);
+      if (!silent) toast.error(error.response?.data?.message || "Unable to load contacts");
     } finally {
-      set({ isUsersLoading: false });
+      if (!silent) set({ isUsersLoading: false });
     }
   },
 
@@ -102,6 +129,19 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuthStore.getState().socket;
     socket?.off("newMessage");
     stopMessagePolling();
+  },
+
+  startContactsPolling: () => {
+    stopContactsPolling();
+    get().getUsers({ silent: true });
+
+    contactsPollInterval = setInterval(() => {
+      get().getUsers({ silent: true, notifyNewUnread: true });
+    }, CONTACTS_POLL_INTERVAL);
+  },
+
+  stopContactsPolling: () => {
+    stopContactsPolling();
   },
 
   incrementUnreadCount: (userId) =>
