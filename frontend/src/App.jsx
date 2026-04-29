@@ -16,7 +16,15 @@ import { Loader } from "lucide-react";
 import { Toaster } from "react-hot-toast";
 
 const App = () => {
-  const { authUser, checkAuth, isCheckingAuth, onlineUsers, socket } = useAuthStore();
+  const {
+    authUser,
+    checkAuth,
+    isCheckingAuth,
+    onlineUsers,
+    socket,
+    startPresenceHeartbeat,
+    stopPresenceHeartbeat,
+  } = useAuthStore();
   const {
     subscribeToMessages,
     unsubscribeFromMessages,
@@ -41,9 +49,13 @@ const App = () => {
   useEffect(() => {
     if (!authUser) return;
 
+    startPresenceHeartbeat();
     startContactsPolling();
-    return () => stopContactsPolling();
-  }, [authUser, startContactsPolling, stopContactsPolling]);
+    return () => {
+      stopPresenceHeartbeat();
+      stopContactsPolling();
+    };
+  }, [authUser, startContactsPolling, stopContactsPolling, startPresenceHeartbeat, stopPresenceHeartbeat]);
 
   console.log({ authUser });
 

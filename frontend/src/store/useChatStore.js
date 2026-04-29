@@ -28,8 +28,10 @@ const getMessagePreview = (message) => {
   return "Sent a message";
 };
 
-const sortUsersByUnread = (users, unreadCounts) =>
-  [...users].sort((a, b) => (unreadCounts[b._id] || 0) - (unreadCounts[a._id] || 0));
+const getActivityTime = (user) => new Date(user.lastMessageAt || user.updatedAt || 0).getTime();
+
+const sortUsersByActivity = (users) =>
+  [...users].sort((a, b) => getActivityTime(b) - getActivityTime(a));
 
 export const useChatStore = create((set, get) => ({
   messages: [],
@@ -63,7 +65,7 @@ export const useChatStore = create((set, get) => ({
         });
       }
 
-      set({ users: sortUsersByUnread(res.data, unreadCounts), unreadCounts });
+      set({ users: sortUsersByActivity(res.data), unreadCounts });
     } catch (error) {
       if (!silent) toast.error(error.response?.data?.message || "Unable to load contacts");
     } finally {

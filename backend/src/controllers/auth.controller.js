@@ -26,6 +26,7 @@ export const signup = async (req, res) => {
       fullName,
       email,
       password: hashedPassword,
+      lastSeen: new Date(),
     });
 
     if (newUser) {
@@ -64,12 +65,15 @@ export const login = async (req, res) => {
     }
 
     const token = generateToken(user._id, res);
+    user.lastSeen = new Date();
+    await user.save();
 
     res.status(200).json({
       _id: user._id,
       fullName: user.fullName,
       email: user.email,
       profilePic: user.profilePic,
+      lastSeen: user.lastSeen,
       token,
     });
   } catch (error) {
@@ -78,8 +82,15 @@ export const login = async (req, res) => {
   }
 };
 
-export const logout = (req, res) => {
+export const logout = async (req, res) => {
   try {
+    const token = getAuthToken(req);
+
+    if (token) {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      await User.findByIdAndUpdate(decoded.userId, { lastSeen: new Date(0) });
+    }
+
     res.cookie("jwt", "", { maxAge: 0, ...authCookieOptions });
     res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
@@ -127,9 +138,22 @@ export const checkAuth = async (req, res) => {
       return res.status(200).json(null);
     }
 
+    user.lastSeen = new Date();
+    await user.save();
+
     res.status(200).json(user);
   } catch (error) {
     res.cookie("jwt", "", { maxAge: 0, ...authCookieOptions });
     res.status(200).json(null);
+  }
+};
+
+export const heartbeat = async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user._id, { lastSeen: new Date() });
+    res.status(200).json({ status: "ok" });
+  } catch (error) {
+    console.log("Error in heartbeat controller", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };

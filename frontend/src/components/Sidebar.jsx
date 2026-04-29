@@ -16,9 +16,11 @@ const Sidebar = () => {
   }, [getUsers]);
 
   const filteredUsers = showOnlineOnly
-    ? users.filter((user) => onlineUsers.includes(user._id))
+    ? users.filter((user) => user.isOnline || onlineUsers.includes(user._id))
     : users;
-  const onlineContactCount = users.filter((user) => onlineUsers.includes(user._id)).length;
+  const onlineContactCount = users.filter(
+    (user) => user.isOnline || onlineUsers.includes(user._id)
+  ).length;
 
   if (isUsersLoading) return <SidebarSkeleton />;
 
@@ -64,7 +66,7 @@ const Sidebar = () => {
                   alt={user.fullName}
                   className="size-12 object-cover rounded-full"
                 />
-                {onlineUsers.includes(user._id) && (
+                {(user.isOnline || onlineUsers.includes(user._id)) && (
                   <span
                     className="absolute bottom-0 right-0 size-3 bg-green-500 
                     rounded-full ring-2 ring-zinc-900"
@@ -81,7 +83,7 @@ const Sidebar = () => {
               <div className="hidden lg:block text-left min-w-0">
                 <div className="font-medium truncate">{user.fullName}</div>
                 <div className="text-sm text-zinc-400">
-                  {onlineUsers.includes(user._id) ? "Online" : "Offline"}
+                  {user.isOnline || onlineUsers.includes(user._id) ? "Online" : "Offline"}
                 </div>
               </div>
             </button>

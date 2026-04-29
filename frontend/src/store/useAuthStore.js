@@ -19,6 +19,16 @@ const clearAuthSession = () => {
   localStorage.removeItem("auth-token");
 };
 
+const PRESENCE_HEARTBEAT_INTERVAL = 15000;
+let presenceHeartbeatInterval = null;
+
+const stopPresenceHeartbeat = () => {
+  if (presenceHeartbeatInterval) {
+    clearInterval(presenceHeartbeatInterval);
+    presenceHeartbeatInterval = null;
+  }
+};
+
 export const useAuthStore = create((set, get) => ({
   authUser: null,
   isSigningUp: false,
@@ -83,6 +93,7 @@ export const useAuthStore = create((set, get) => ({
       await axiosInstance.post("/auth/logout");
       set({ authUser: null });
       toast.success("Logged out successfully");
+      get().stopPresenceHeartbeat();
       get().disconnectSocket();
     } catch (error) {
       toast.error(error.response?.data?.message || "Unable to log out");
@@ -125,5 +136,22 @@ export const useAuthStore = create((set, get) => ({
   disconnectSocket: () => {
     if (get().socket?.connected) get().socket.disconnect();
     set({ socket: null, onlineUsers: [] });
+  },
+  startPresenceHeartbeat: () => {
+    stopPresenceHeartbeat();
+
+    const sendHeartbeat = async () => {
+      try {
+        await axiosInstance.post("/auth/heartbeat");
+      } catch (error) {
+        console.log("Presence heartbeat failed:", error);
+      }
+    };
+
+    sendHeartbeat();
+    presenceHeartbeatInterval = setInterval(sendHeartbeat, PRESENCE_HEARTBEAT_INTERVAL);
+  },
+  stopPresenceHeartbeat: () => {
+    stopPresenceHeartbeat();
   },
 }));

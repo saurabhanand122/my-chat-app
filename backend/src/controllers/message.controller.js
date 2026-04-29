@@ -8,6 +8,7 @@ export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
     const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
+    const onlineCutoff = new Date(Date.now() - 30000);
     const unreadMessages = await Message.aggregate([
       {
         $match: {
@@ -25,10 +26,37 @@ export const getUsersForSidebar = async (req, res) => {
     const unreadCounts = new Map(
       unreadMessages.map((item) => [item._id.toString(), item.count])
     );
+    const latestMessages = await Message.aggregate([
+      {
+        $match: {
+          $or: [{ senderId: loggedInUserId }, { receiverId: loggedInUserId }],
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      {
+        $project: {
+          contactId: {
+            $cond: [{ $eq: ["$senderId", loggedInUserId] }, "$receiverId", "$senderId"],
+          },
+          createdAt: 1,
+        },
+      },
+      {
+        $group: {
+          _id: "$contactId",
+          lastMessageAt: { $first: "$createdAt" },
+        },
+      },
+    ]);
+    const lastMessageDates = new Map(
+      latestMessages.map((item) => [item._id.toString(), item.lastMessageAt])
+    );
 
     res.status(200).json(
       filteredUsers.map((user) => ({
         ...user.toObject(),
+        isOnline: user.lastSeen && user.lastSeen >= onlineCutoff,
+        lastMessageAt: lastMessageDates.get(user._id.toString()) || null,
         unreadCount: unreadCounts.get(user._id.toString()) || 0,
       }))
     );
