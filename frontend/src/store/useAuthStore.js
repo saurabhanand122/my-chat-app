@@ -2,32 +2,8 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
-import { BACKEND_BASE_URL } from "../lib/config.js";
 
-const saveAuthSession = (user) => {
-  if (user?.token) {
-    localStorage.setItem("auth-token", user.token);
-  }
-
-  const authUser = { ...user };
-  delete authUser.token;
-
-  return authUser;
-};
-
-const clearAuthSession = () => {
-  localStorage.removeItem("auth-token");
-};
-
-const PRESENCE_HEARTBEAT_INTERVAL = 15000;
-let presenceHeartbeatInterval = null;
-
-const stopPresenceHeartbeat = () => {
-  if (presenceHeartbeatInterval) {
-    clearInterval(presenceHeartbeatInterval);
-    presenceHeartbeatInterval = null;
-  }
-};
+const BASE_URL = import.meta.env.MODE === "development" ? "http://localhost:5001" : "/";
 
 export const useAuthStore = create((set, get) => ({
   authUser: null,
@@ -42,17 +18,10 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = await axiosInstance.get("/auth/check");
 
-      if (!res.data) {
-        clearAuthSession();
-      }
-
       set({ authUser: res.data });
       get().connectSocket();
     } catch (error) {
-      if (error.response?.status !== 401) {
-        console.log("Error in checkAuth:", error);
-      }
-      clearAuthSession();
+      console.log("Error in checkAuth:", error);
       set({ authUser: null });
     } finally {
       set({ isCheckingAuth: false });
@@ -63,11 +32,11 @@ export const useAuthStore = create((set, get) => ({
     set({ isSigningUp: true });
     try {
       const res = await axiosInstance.post("/auth/signup", data);
-      set({ authUser: saveAuthSession(res.data) });
+      set({ authUser: res.data });
       toast.success("Account created successfully");
       get().connectSocket();
     } catch (error) {
-      toast.error(error.response?.data?.message || "Unable to sign up");
+      toast.error(error.response.data.message);
     } finally {
       set({ isSigningUp: false });
     }
@@ -77,12 +46,12 @@ export const useAuthStore = create((set, get) => ({
     set({ isLoggingIn: true });
     try {
       const res = await axiosInstance.post("/auth/login", data);
-      set({ authUser: saveAuthSession(res.data) });
+      set({ authUser: res.data });
       toast.success("Logged in successfully");
 
       get().connectSocket();
     } catch (error) {
-      toast.error(error.response?.data?.message || "Unable to log in");
+      toast.error(error.response.data.message);
     } finally {
       set({ isLoggingIn: false });
     }
@@ -93,12 +62,9 @@ export const useAuthStore = create((set, get) => ({
       await axiosInstance.post("/auth/logout");
       set({ authUser: null });
       toast.success("Logged out successfully");
-      get().stopPresenceHeartbeat();
       get().disconnectSocket();
     } catch (error) {
-      toast.error(error.response?.data?.message || "Unable to log out");
-    } finally {
-      clearAuthSession();
+      toast.error(error.response.data.message);
     }
   },
 
@@ -110,7 +76,7 @@ export const useAuthStore = create((set, get) => ({
       toast.success("Profile updated successfully");
     } catch (error) {
       console.log("error in update profile:", error);
-      toast.error(error.response?.data?.message || "Unable to update profile");
+      toast.error(error.response.data.message);
     } finally {
       set({ isUpdatingProfile: false });
     }
@@ -120,7 +86,7 @@ export const useAuthStore = create((set, get) => ({
     const { authUser } = get();
     if (!authUser || get().socket?.connected) return;
 
-    const socket = io(BACKEND_BASE_URL, {
+    const socket = io(BASE_URL, {
       query: {
         userId: authUser._id,
       },
@@ -135,23 +101,5 @@ export const useAuthStore = create((set, get) => ({
   },
   disconnectSocket: () => {
     if (get().socket?.connected) get().socket.disconnect();
-    set({ socket: null, onlineUsers: [] });
-  },
-  startPresenceHeartbeat: () => {
-    stopPresenceHeartbeat();
-
-    const sendHeartbeat = async () => {
-      try {
-        await axiosInstance.post("/auth/heartbeat");
-      } catch (error) {
-        console.log("Presence heartbeat failed:", error);
-      }
-    };
-
-    sendHeartbeat();
-    presenceHeartbeatInterval = setInterval(sendHeartbeat, PRESENCE_HEARTBEAT_INTERVAL);
-  },
-  stopPresenceHeartbeat: () => {
-    stopPresenceHeartbeat();
   },
 }));

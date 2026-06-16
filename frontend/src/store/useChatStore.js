@@ -3,190 +3,66 @@ import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
 
-const MESSAGE_POLL_INTERVAL = 2000;
-const CONTACTS_POLL_INTERVAL = 5000;
-let messagePollInterval = null;
-let contactsPollInterval = null;
-
-const stopMessagePolling = () => {
-  if (messagePollInterval) {
-    clearInterval(messagePollInterval);
-    messagePollInterval = null;
-  }
-};
-
-const stopContactsPolling = () => {
-  if (contactsPollInterval) {
-    clearInterval(contactsPollInterval);
-    contactsPollInterval = null;
-  }
-};
-
-const getMessagePreview = (message) => {
-  if (message.text?.trim()) return message.text.trim();
-  if (message.image) return "Sent an image";
-  return "Sent a message";
-};
-
-const getActivityTime = (user) => new Date(user.lastMessageAt || user.updatedAt || 0).getTime();
-
-const sortUsersByActivity = (users) =>
-  [...users].sort((a, b) => getActivityTime(b) - getActivityTime(a));
-
 export const useChatStore = create((set, get) => ({
   messages: [],
   users: [],
-  unreadCounts: {},
   selectedUser: null,
   isUsersLoading: false,
   isMessagesLoading: false,
 
-  getUsers: async ({ silent = false, notifyNewUnread = false } = {}) => {
-    if (!silent) set({ isUsersLoading: true });
+  getUsers: async () => {
+    set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/users");
-      const previousUnreadCounts = get().unreadCounts;
-      const activeUserId = get().selectedUser?._id;
-      const unreadCounts = res.data.reduce((counts, user) => {
-        counts[user._id] = user.unreadCount || 0;
-        return counts;
-      }, {});
-
-      if (notifyNewUnread) {
-        res.data.forEach((user) => {
-          const previousCount = previousUnreadCounts[user._id] || 0;
-          const nextCount = unreadCounts[user._id] || 0;
-
-          if (user._id !== activeUserId && nextCount > previousCount) {
-            toast(`${user.fullName} sent you a message`, {
-              duration: 4000,
-            });
-          }
-        });
-      }
-
-      set({ users: sortUsersByActivity(res.data), unreadCounts });
+      set({ users: res.data });
     } catch (error) {
-      if (!silent) toast.error(error.response?.data?.message || "Unable to load contacts");
+      toast.error(error.response.data.message);
     } finally {
-      if (!silent) set({ isUsersLoading: false });
+      set({ isUsersLoading: false });
     }
   },
 
-  getMessages: async (userId, { silent = false } = {}) => {
-    if (!silent) set({ isMessagesLoading: true });
+  getMessages: async (userId) => {
+    set({ isMessagesLoading: true });
     try {
       const res = await axiosInstance.get(`/messages/${userId}`);
       set({ messages: res.data });
-      get().clearUnreadCount(userId);
     } catch (error) {
-      if (!silent) toast.error(error.response?.data?.message || "Unable to load messages");
+      toast.error(error.response.data.message);
     } finally {
-      if (!silent) set({ isMessagesLoading: false });
+      set({ isMessagesLoading: false });
     }
   },
   sendMessage: async (messageData) => {
-    const { selectedUser } = get();
+    const { selectedUser, messages } = get();
     try {
       const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      set((state) => ({ messages: [...state.messages, res.data] }));
+      set({ messages: [...messages, res.data] });
     } catch (error) {
-      toast.error(error.response?.data?.message || "Unable to send message");
+      toast.error(error.response.data.message);
     }
   },
 
   subscribeToMessages: () => {
+    const { selectedUser } = get();
+    if (!selectedUser) return;
+
     const socket = useAuthStore.getState().socket;
-    if (!socket) return;
 
-    stopMessagePolling();
-
-    socket.off("newMessage");
     socket.on("newMessage", (newMessage) => {
-      const activeUser = get().selectedUser;
-      const isMessageSentFromSelectedUser = newMessage.senderId === activeUser?._id;
+      const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
+      if (!isMessageSentFromSelectedUser) return;
 
-      if (isMessageSentFromSelectedUser) {
-        set((state) => ({
-          messages: [...state.messages, newMessage],
-        }));
-        get().clearUnreadCount(newMessage.senderId);
-        return;
-      }
-
-      get().incrementUnreadCount(newMessage.senderId);
-      get().moveUserToTop(newMessage.senderId);
-      get().showMessageNotification(newMessage);
+      set({
+        messages: [...get().messages, newMessage],
+      });
     });
-
-    messagePollInterval = setInterval(() => {
-      const activeUser = get().selectedUser;
-      if (activeUser?._id) {
-        get().getMessages(activeUser._id, { silent: true });
-      }
-    }, MESSAGE_POLL_INTERVAL);
   },
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
-    socket?.off("newMessage");
-    stopMessagePolling();
+    socket.off("newMessage");
   },
 
-  startContactsPolling: () => {
-    stopContactsPolling();
-    get().getUsers({ silent: true });
-
-    contactsPollInterval = setInterval(() => {
-      get().getUsers({ silent: true, notifyNewUnread: true });
-    }, CONTACTS_POLL_INTERVAL);
-  },
-
-  stopContactsPolling: () => {
-    stopContactsPolling();
-  },
-
-  incrementUnreadCount: (userId) =>
-    set((state) => ({
-      unreadCounts: {
-        ...state.unreadCounts,
-        [userId]: (state.unreadCounts[userId] || 0) + 1,
-      },
-    })),
-
-  clearUnreadCount: (userId) =>
-    set((state) => ({
-      unreadCounts: {
-        ...state.unreadCounts,
-        [userId]: 0,
-      },
-      users: state.users.map((user) =>
-        user._id === userId ? { ...user, unreadCount: 0 } : user
-      ),
-    })),
-
-  moveUserToTop: (userId) =>
-    set((state) => {
-      const sender = state.users.find((user) => user._id === userId);
-      if (!sender) return state;
-
-      return {
-        users: [sender, ...state.users.filter((user) => user._id !== userId)],
-      };
-    }),
-
-  showMessageNotification: (message) => {
-    const sender = get().users.find((user) => user._id === message.senderId);
-    const senderName = sender?.fullName || "New message";
-    const preview = getMessagePreview(message);
-
-    toast(`${senderName}: ${preview}`, {
-      duration: 4000,
-    });
-  },
-
-  setSelectedUser: (selectedUser) => {
-    set({ selectedUser });
-    if (selectedUser?._id) get().clearUnreadCount(selectedUser._id);
-  },
+  setSelectedUser: (selectedUser) => set({ selectedUser }),
 }));

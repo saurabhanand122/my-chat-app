@@ -2,64 +2,14 @@ import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
 
 import cloudinary from "../lib/cloudinary.js";
-import { getReceiverSocketIds, io } from "../lib/socket.js";
+import { getReceiverSocketId, io } from "../lib/socket.js";
 
 export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
     const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
-    const onlineCutoff = new Date(Date.now() - 30000);
-    const unreadMessages = await Message.aggregate([
-      {
-        $match: {
-          receiverId: loggedInUserId,
-          read: false,
-        },
-      },
-      {
-        $group: {
-          _id: "$senderId",
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-    const unreadCounts = new Map(
-      unreadMessages.map((item) => [item._id.toString(), item.count])
-    );
-    const latestMessages = await Message.aggregate([
-      {
-        $match: {
-          $or: [{ senderId: loggedInUserId }, { receiverId: loggedInUserId }],
-        },
-      },
-      { $sort: { createdAt: -1 } },
-      {
-        $project: {
-          contactId: {
-            $cond: [{ $eq: ["$senderId", loggedInUserId] }, "$receiverId", "$senderId"],
-          },
-          createdAt: 1,
-        },
-      },
-      {
-        $group: {
-          _id: "$contactId",
-          lastMessageAt: { $first: "$createdAt" },
-        },
-      },
-    ]);
-    const lastMessageDates = new Map(
-      latestMessages.map((item) => [item._id.toString(), item.lastMessageAt])
-    );
 
-    res.status(200).json(
-      filteredUsers.map((user) => ({
-        ...user.toObject(),
-        isOnline: user.lastSeen && user.lastSeen >= onlineCutoff,
-        lastMessageAt: lastMessageDates.get(user._id.toString()) || null,
-        unreadCount: unreadCounts.get(user._id.toString()) || 0,
-      }))
-    );
+    res.status(200).json(filteredUsers);
   } catch (error) {
     console.error("Error in getUsersForSidebar: ", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -71,17 +21,12 @@ export const getMessages = async (req, res) => {
     const { id: userToChatId } = req.params;
     const myId = req.user._id;
 
-    await Message.updateMany(
-      { senderId: userToChatId, receiverId: myId, read: false },
-      { $set: { read: true } }
-    );
-
     const messages = await Message.find({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
-    }).sort({ createdAt: 1 });
+    });
 
     res.status(200).json(messages);
   } catch (error) {
@@ -112,11 +57,9 @@ export const sendMessage = async (req, res) => {
 
     await newMessage.save();
 
-    const receiverSocketIds = getReceiverSocketIds(receiverId);
-    if (receiverSocketIds.length) {
-      receiverSocketIds.forEach((socketId) => {
-        io.to(socketId).emit("newMessage", newMessage);
-      });
+    const receiverSocketId = getReceiverSocketId(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("newMessage", newMessage);
     }
 
     res.status(201).json(newMessage);
